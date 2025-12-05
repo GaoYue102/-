@@ -1,6 +1,6 @@
 
 import React, { useState, useRef } from 'react';
-import { Upload, Scan, RefreshCw, LayoutGrid, Activity, Layers, Play, GitMerge } from 'lucide-react';
+import { Upload, Play, RefreshCw, LayoutGrid, Activity, Layers, GitMerge, AlertTriangle } from 'lucide-react';
 import { compareRegionPair, alignAndCropImages } from './services/geminiService';
 import { ZoomableImage } from './components/ZoomableImage';
 import { ImageState, GridCell, FinalDefect, TransformState } from './types';
@@ -93,7 +93,7 @@ const App: React.FC = () => {
       try {
           // --- STEP 1: Alignment & Synchronized Crop ---
           if (abortRef.current) return;
-          setProcessingStep("STEP 1: 图像配准与同步裁剪 (Alignment & Crop)...");
+          setProcessingStep("STEP 1: 图像配准与同步裁剪...");
           
           let currentRefBase64 = refImage.base64;
           let currentTestBase64 = testImage.base64;
@@ -127,7 +127,7 @@ const App: React.FC = () => {
                       height: alignedResult.height
                   }));
                   
-                  setProcessingStep("配准裁剪成功！准备扫描...");
+                  setProcessingStep("配准完成。准备分块扫描...");
               } else {
                   setProcessingStep("配准异常，尝试使用原图扫描...");
               }
@@ -136,25 +136,30 @@ const App: React.FC = () => {
           }
           await wait(500);
 
-          // --- STEP 2: 10x10 Grid Init ---
+          // --- STEP 2: Fixed Grid Init (200x200) ---
           if (abortRef.current) return;
-          setProcessingStep("STEP 2: 10x10 网格初始化...");
+          setProcessingStep("STEP 2: 初始化 200px 网格...");
           
-          const rows = 10;
-          const cols = 10;
-          const cellW = scanWidth / cols;
-          const cellH = scanHeight / rows;
-
+          const fixedSize = 200;
+          const cols = Math.ceil(scanWidth / fixedSize);
+          const rows = Math.ceil(scanHeight / fixedSize);
+          
           let localCells: GridCell[] = [];
           for (let r = 0; r < rows; r++) {
               for (let c = 0; c < cols; c++) {
+                  const x = c * fixedSize;
+                  const y = r * fixedSize;
+                  // Handle edges (clamp to image dimensions)
+                  const w = Math.min(fixedSize, scanWidth - x);
+                  const h = Math.min(fixedSize, scanHeight - y);
+                  
                   localCells.push({
                       id: `cell-${r}-${c}`,
                       level: 1,
-                      x: c * cellW,
-                      y: r * cellH,
-                      width: cellW,
-                      height: cellH,
+                      x: x,
+                      y: y,
+                      width: w,
+                      height: h,
                       score: 0,
                       status: 'pending'
                   });
@@ -163,7 +168,8 @@ const App: React.FC = () => {
           setGridCells([...localCells]);
           
           // --- STEP 3: Sequential Scan ---
-          for (let i = 0; i < localCells.length; i++) {
+          const totalCells = localCells.length;
+          for (let i = 0; i < totalCells; i++) {
               if (abortRef.current) {
                   console.log("Analysis aborted by user.");
                   return;
@@ -171,13 +177,14 @@ const App: React.FC = () => {
 
               const cell = localCells[i];
               
+              // Optimistic UI update: Mark as analyzing
               setGridCells(prev => {
                   const next = [...prev];
                   next[i] = { ...next[i], status: 'analyzing' };
                   return next;
               });
-              setProcessingStep(`扫描中 [${i+1}/100]...`);
-              setProgress(Math.round(((i + 1) / 100) * 100));
+              setProcessingStep(`扫描中 [${i+1}/${totalCells}]...`);
+              setProgress(Math.round(((i + 1) / totalCells) * 100));
 
               // Use current (cropped) images for scanning
               const template = await cropImageRegion(currentRefBase64!, cell.x, cell.y, cell.width, cell.height);
@@ -198,7 +205,7 @@ const App: React.FC = () => {
               localCells[i] = { ...cell, score, status };
               setGridCells([...localCells]);
 
-              await wait(0); // Zero delay for max speed, but keeping yield
+              await wait(0); 
           }
 
           // --- STEP 4: Fusion ---
@@ -268,7 +275,7 @@ const App: React.FC = () => {
              <div className="bg-cyan-600 p-1.5 rounded">
                 <LayoutGrid className="text-white" size={20} />
              </div>
-             <h1 className="font-bold text-white tracking-wide">10x10 Grid Scanner 全图精细扫描系统 (Auto-Crop)</h1>
+             <h1 className="font-bold text-white tracking-wide">Fixed Grid Scanner (200px) 通用差异检测系统</h1>
           </div>
           <button 
              onClick={handleReset}
@@ -297,6 +304,7 @@ const App: React.FC = () => {
         ) : (
             <>
                 <div className="flex-1 flex flex-col p-4 gap-4">
+                     {/* Controls / Progress Bar */}
                      <div className="flex justify-center gap-4 bg-slate-900 p-2 rounded-lg border border-slate-800 shrink-0">
                         {isProcessing ? (
                             <div className="flex items-center gap-4">
@@ -313,7 +321,7 @@ const App: React.FC = () => {
                                onClick={runAnalysisWithFusion}
                                className="flex items-center gap-2 px-8 py-2 rounded-full font-bold text-sm bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg hover:scale-105 transition-all"
                             >
-                               <Play size={16} /> 开始 10x10 全图扫描
+                               <Play size={16} /> 开始 200px 网格扫描
                             </button>
                         )}
                      </div>
@@ -350,47 +358,42 @@ const App: React.FC = () => {
                      </div>
                 </div>
 
-                {/* Status Sidebar */}
-                <div className="w-72 bg-slate-900 border-l border-slate-800 p-6 flex flex-col gap-6 overflow-y-auto z-30 shadow-xl">
-                    <div>
-                        <h2 className="text-white font-bold mb-4 flex items-center gap-2"><Layers size={18}/> 扫描状态</h2>
-                        <div className="grid grid-cols-10 gap-1 mb-4">
-                            {/* Mini Map Visualization */}
-                            {Array.from({length: 100}).map((_, i) => {
-                                const cell = gridCells[i];
-                                let color = 'bg-slate-800';
-                                if (cell) {
-                                    if (cell.status === 'defect') color = 'bg-red-500';
-                                    else if (cell.status === 'ok') color = 'bg-green-500';
-                                    else if (cell.status === 'analyzing') color = 'bg-cyan-400 animate-pulse';
-                                }
-                                return (
-                                    <div key={i} className={`w-full pt-[100%] relative rounded-[1px] ${color}`}></div>
-                                )
-                            })}
-                        </div>
-                        
-                        <div className="space-y-2">
-                             <div className="text-xs text-slate-400 font-mono">
-                                已扫描: {gridCells.filter(c => c.status === 'ok' || c.status === 'defect').length} / 100
-                             </div>
-                             <div className="text-xs text-red-400 font-mono">
-                                发现差异: {gridCells.filter(c => c.status === 'defect').length}
-                             </div>
-                        </div>
+                {/* Status Sidebar - Simplified to Results Only */}
+                <div className="w-64 bg-slate-900 border-l border-slate-800 p-6 flex flex-col gap-6 overflow-y-auto z-30 shadow-xl">
+                    <div className="mb-4">
+                        <h2 className="text-white font-bold mb-2 flex items-center gap-2"><Layers size={18}/> 检测结果</h2>
+                        <p className="text-xs text-slate-500 leading-relaxed">
+                            {isProcessing ? "正在进行固定网格扫描与特征匹配..." : "等待开始或检测已完成。"}
+                        </p>
                     </div>
-                    
-                    {finalDefects.length > 0 && (
+
+                    {/* Only Show Final Results */}
+                    {finalDefects.length > 0 ? (
                         <div className="mt-auto animate-in slide-in-from-bottom">
-                            <div className="p-4 bg-red-900/20 border border-red-500/30 rounded-xl">
-                                <div className="flex items-center gap-2 text-red-400 font-bold mb-2">
-                                    <Activity size={16} /> 扫描完成
+                            <div className="p-4 bg-red-900/20 border border-red-500/30 rounded-xl shadow-[0_0_15px_rgba(239,68,68,0.2)]">
+                                <div className="flex items-center gap-2 text-red-400 font-bold mb-3">
+                                    <AlertTriangle size={20} /> 发现异常
                                 </div>
-                                <p className="text-sm text-red-200 leading-relaxed">
-                                    经融合算法处理，最终判定 <span className="font-bold text-white text-lg mx-1">{finalDefects.length}</span> 处差异区域。
+                                <div className="text-3xl font-black text-white mb-1">{finalDefects.length}</div>
+                                <div className="text-xs text-red-300 font-mono mb-3 uppercase tracking-wider">Total Defects</div>
+                                <p className="text-xs text-slate-400 leading-relaxed border-t border-red-500/20 pt-3">
+                                    经图像配准与像素级差分分析，共标记 {finalDefects.length} 处显著差异区域。
                                 </p>
                             </div>
                         </div>
+                    ) : (
+                        !isProcessing && gridCells.length > 0 && (
+                            <div className="mt-auto animate-in slide-in-from-bottom">
+                                <div className="p-4 bg-green-900/20 border border-green-500/30 rounded-xl">
+                                    <div className="flex items-center gap-2 text-green-400 font-bold mb-2">
+                                        <GitMerge size={18} /> 检测通过
+                                    </div>
+                                    <p className="text-sm text-green-200 leading-relaxed">
+                                        未发现显著的结构性差异或缺失。
+                                    </p>
+                                </div>
+                            </div>
+                        )
                     )}
                 </div>
             </>
