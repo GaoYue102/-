@@ -1,0 +1,5 @@
+{
+  "name": "VisualQA - Assembly Inspection",
+  "description": "An AI-powered visual inspection tool that compares a reference product photo against a test photo to identify assembly defects using Gemini 2.5 Flash.",
+  "requestFramePermissions": []
+}
