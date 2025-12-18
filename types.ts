@@ -8,13 +8,14 @@ export interface RegionOfInterest {
 
 export interface GridCell {
   id: string;
-  level: number; // 1 to 4
-  x: number; // Image coordinate
-  y: number; // Image coordinate
+  level: number;
+  x: number;
+  y: number;
   width: number;
   height: number;
-  score: number; // 0-100
-  status: 'pending' | 'ok' | 'defect' | 'analyzing';
+  score: number;
+  status: 'pending' | 'ok' | 'defect' | 'analyzing' | 'ai_verifying';
+  description?: string;
 }
 
 export interface FinalDefect {
@@ -23,6 +24,8 @@ export interface FinalDefect {
   y: number;
   width: number;
   height: number;
+  description?: string;
+  isAiConfirmed?: boolean;
 }
 
 export interface MatchResult {
